@@ -1,24 +1,40 @@
-use windows_sys::Win32::Storage::FileSystem::{FindFirstFileA, WIN32_FIND_DATAA};
-use windows_sys::Win32::Foundation::{FILETIME, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Storage::FileSystem::{FindFirstFileA, FindNextFileA, WIN32_FIND_DATAA};
+use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE, GetLastError};
+use windows_sys::Win32::System::Memory::*;
 
-fn main() {
+fn enumerate_files(foldername: &str) {
     unsafe {
-        let finddata: *mut WIN32_FIND_DATAA = &mut WIN32_FIND_DATAA{
-            dwFileAttributes: 0,
-            ftLastAccessTime: FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 },
-            ftLastWriteTime: FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 },
-            ftCreationTime: FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 },
-            nFileSizeHigh: 0,
-            nFileSizeLow: 0,
-            dwReserved0: 0,
-            dwReserved1: 0,
-            cFileName: [0; 260],
-            cAlternateFileName: [0; 14],
-        };
-        let foldername: *const u8 = "c:\\".as_bytes().as_ptr();
-        if FindFirstFileA(foldername, finddata) == INVALID_HANDLE_VALUE
-        {
-            println!("Cannot find C:");
+        let buffer = LocalAlloc(LPTR, std::mem::size_of::<WIN32_FIND_DATAA>());
+        let finddata: *mut WIN32_FIND_DATAA = buffer as *mut WIN32_FIND_DATAA;
+        let cfoldername = std::ffi::CString::new((String::from(foldername) + "\\*").as_str()).unwrap();
+        let hfind = FindFirstFileA(cfoldername.as_c_str().as_ptr() as *const u8, finddata);
+        if hfind != INVALID_HANDLE_VALUE {
+            println!("Items under {}", foldername);
+        } else {
+            let error = GetLastError();
+            panic!("Invalid input {}, Error {:#x}:{}", foldername, error, error);
         }
+        LocalFree(buffer);
+
+        while hfind != INVALID_HANDLE_VALUE { 
+            // Todo: Consider zeroing the memory instead of reallocation
+            let buffer1 = LocalAlloc(LPTR, std::mem::size_of::<WIN32_FIND_DATAA>());
+            let finddata1: *mut WIN32_FIND_DATAA = buffer1 as *mut WIN32_FIND_DATAA;
+
+            if FindNextFileA(hfind, finddata1) == 0 { break; }
+            println!("{}", String::from_utf8_lossy(&(*finddata1).cFileName));
+
+            LocalFree(buffer1);
+        }
+
+        CloseHandle(hfind);
+
+        println!();
     }
 }
+
+fn main() {
+    enumerate_files("D:\\Workspace");
+    enumerate_files("D:");
+}
+
